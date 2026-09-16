@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Tallinn Sunset Waves</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    /* Убираем отступы и скролл, чтобы холст p5.js занимал весь экран */
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #1b1035; /* цвет фона на время загрузки, совпадает с верхом неба */
+    }
+    canvas {
+      display: block;
+    }
+  </style>
+
+  <!-- Библиотека p5.js, подключается с CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+</head>
+<body>
+  <!-- Сам скетч подключается отдельным файлом -->
+  <script src="tallinn-waves.js"></script>
+</body>
+</html>
