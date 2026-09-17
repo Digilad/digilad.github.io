@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: art-gallery-api
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: MET_API_BASE
+        value: https://collectionapi.metmuseum.org/public/collection/v1
+      - key: AIC_API_BASE
+        value: https://api.artic.edu/api/v1
+      - key: ALLOWED_ORIGIN
+        value: "*"
