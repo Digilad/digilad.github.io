@@ -6,6 +6,6 @@ export const GALLERY_SETTINGS = {
   displayDuration: 10_000,
   // Number of attempts before reporting that no suitable image was found.
   maximumLoadAttempts: 12,
-  // Leave empty for the local Node server. Set the HTTPS URL after deploying server.js.
+  // Leave empty for the local Node server. Set the Cloudflare Worker HTTPS URL for GitHub Pages.
   apiEndpoint: ''
 };
