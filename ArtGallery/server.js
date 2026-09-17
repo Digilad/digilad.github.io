@@ -69,14 +69,29 @@ async function fromArtInstitute(artists) {
   throw new Error('Art Institute did not return a usable painting.');
 }
 
-async function respondWithArtwork(response) {
+function setCors(response) {
+  response.setHeader('Access-Control-Allow-Origin', env.ALLOWED_ORIGIN || '*');
+  response.setHeader('Vary', 'Origin');
+}
+
+function createProxyImageUrl(request, imageUrl) {
+  const protocol = String(request.headers['x-forwarded-proto'] || 'http').split(',')[0];
+  const serverUrl = new URL(`${protocol}://${request.headers.host}`);
+  serverUrl.pathname = '/api/image';
+  serverUrl.searchParams.set('url', imageUrl);
+  return serverUrl.toString();
+}
+
+async function respondWithArtwork(request, response) {
   try {
     const artists = await getPreferredArtists();
     const providers = [() => fromMet(artists), () => fromArtInstitute(artists)];
     let lastError;
     for (const provider of providers.sort(() => Math.random() - 0.5)) {
       try {
-        return sendJson(response, 200, await provider());
+        const artwork = await provider();
+        artwork.imageUrl = createProxyImageUrl(request, artwork.imageUrl);
+        return sendJson(response, 200, artwork);
       } catch (error) {
         lastError = error;
       }
@@ -88,15 +103,37 @@ async function respondWithArtwork(response) {
 }
 
 function sendJson(response, status, body) {
+  setCors(response);
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(body));
+}
+
+async function proxyImage(request, response) {
+  const url = new URL(request.url, `http://${request.headers.host}`).searchParams.get('url');
+  try {
+    const imageUrl = new URL(url);
+    if (!['images.metmuseum.org', 'www.artic.edu'].includes(imageUrl.hostname)) throw new Error('Image host is not allowed.');
+    const upstream = await fetch(imageUrl);
+    if (!upstream.ok) throw new Error('Image request failed.');
+    setCors(response);
+    response.writeHead(200, { 'Content-Type': upstream.headers.get('content-type') || 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
+    response.end(Buffer.from(await upstream.arrayBuffer()));
+  } catch (error) {
+    sendJson(response, 502, { error: error.message || 'Image proxy failed.' });
+  }
 }
 
 const contentTypes = { '.css': 'text/css', '.html': 'text/html', '.js': 'text/javascript' };
 
 const server = createServer(async (request, response) => {
   const requestUrl = new URL(request.url, `http://${request.headers.host}`);
-  if (requestUrl.pathname === '/api/artwork') return respondWithArtwork(response);
+  if (request.method === 'OPTIONS') {
+    setCors(response);
+    response.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, OPTIONS' }).end();
+    return;
+  }
+  if (requestUrl.pathname === '/api/artwork') return respondWithArtwork(request, response);
+  if (requestUrl.pathname === '/api/image') return proxyImage(request, response);
   const relativePath = requestUrl.pathname === '/' ? 'index.html' : requestUrl.pathname.slice(1);
   const publicPath = path.resolve(rootDir, 'public', relativePath);
   if (!publicPath.startsWith(path.resolve(rootDir, 'public') + path.sep)) {
