@@ -8,6 +8,10 @@ const fields = {
   artist: document.querySelector('#artist'),
   year: document.querySelector('#year')
 };
+const museumSearchTerms = ['landscape', 'seascape', 'garden', 'river', 'city', 'portrait', 'painting'];
+let preferredArtists;
+
+const randomItem = (items) => items[Math.floor(Math.random() * items.length)];
 
 const meetsDisplayRequirements = (candidate) => candidate.naturalWidth >= GALLERY_SETTINGS.targetResolution.width
   && candidate.naturalHeight >= GALLERY_SETTINGS.targetResolution.height
@@ -22,12 +26,77 @@ function preload(source) {
   });
 }
 
+async function getPreferredArtists() {
+  if (preferredArtists) return preferredArtists;
+  try {
+    const text = await fetch('./data/artists.txt').then((response) => response.text());
+    preferredArtists = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#'));
+  } catch {
+    preferredArtists = [];
+  }
+  return preferredArtists;
+}
+
+async function getArtworkFromMet(artists) {
+  const query = randomItem(artists.length ? artists : museumSearchTerms);
+  const searchUrl = new URL('https://collectionapi.metmuseum.org/public/collection/v1/search');
+  searchUrl.searchParams.set('q', query);
+  searchUrl.searchParams.set('hasImages', 'true');
+  const search = await fetch(searchUrl).then((response) => response.json());
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const object = await fetch(`https://collectionapi.metmuseum.org/public/collection/v1/objects/${randomItem(search.objectIDs)}`).then((response) => response.json());
+    if (object.primaryImage && object.isPublicDomain && object.objectName?.toLowerCase().includes('painting')) {
+      return { title: object.title || 'Untitled', artist: object.artistDisplayName || object.culture || 'Unknown artist', year: object.objectDate || '', imageUrl: object.primaryImage };
+    }
+  }
+  throw new Error('The Met did not return a usable painting.');
+}
+
+async function getArtworkFromArtInstitute(artists) {
+  const query = randomItem(artists.length ? artists : museumSearchTerms);
+  const searchUrl = new URL('https://api.artic.edu/api/v1/artworks/search');
+  searchUrl.searchParams.set('q', query);
+  searchUrl.searchParams.set('limit', '100');
+  const search = await fetch(searchUrl).then((response) => response.json());
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const id = randomItem(search.data).id;
+    const detailUrl = `https://api.artic.edu/api/v1/artworks/${id}?fields=id,title,image_id,artist_display,date_display,artist_title,is_public_domain,artwork_type_title`;
+    const { data } = await fetch(detailUrl).then((response) => response.json());
+    if (data?.image_id && data.is_public_domain && data.artwork_type_title?.toLowerCase().includes('painting')) {
+      return { title: data.title || 'Untitled', artist: data.artist_title || data.artist_display || 'Unknown artist', year: data.date_display || '', imageUrl: `https://www.artic.edu/iiif/2/${data.image_id}/full/1920,/0/default.jpg` };
+    }
+  }
+  throw new Error('Art Institute did not return a usable painting.');
+}
+
+async function getArtworkFromPublicApi() {
+  const artists = await getPreferredArtists();
+  const providers = [getArtworkFromMet, getArtworkFromArtInstitute].sort(() => Math.random() - 0.5);
+  let lastError;
+  for (const provider of providers) {
+    try {
+      return await provider(artists);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('Museum APIs are unavailable.');
+}
+
+async function getArtwork() {
+  try {
+    const response = await fetch('/api/artwork', { cache: 'no-store' });
+    if (response.ok) return response.json();
+  } catch {
+    // GitHub Pages does not run the local Node API.
+  }
+  return getArtworkFromPublicApi();
+}
+
 async function requestArtwork() {
   for (let attempt = 0; attempt < GALLERY_SETTINGS.maximumLoadAttempts; attempt += 1) {
     try {
-      const response = await fetch('/api/artwork', { cache: 'no-store' });
-      if (!response.ok) throw new Error('Museum API request failed.');
-      return await preload(await response.json());
+      return await preload(await getArtwork());
     } catch {
       // Try another random API result.
     }
