@@ -10,6 +10,7 @@ const fields = {
 };
 const museumSearchTerms = ['landscape', 'seascape', 'garden', 'river', 'city', 'portrait', 'painting'];
 let preferredArtists;
+const isLocalServer = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 
 const randomItem = (items) => items[Math.floor(Math.random() * items.length)];
 
@@ -84,11 +85,10 @@ async function getArtworkFromPublicApi() {
 }
 
 async function getArtwork() {
-  try {
+  if (isLocalServer) {
     const response = await fetch('/api/artwork', { cache: 'no-store' });
-    if (response.ok) return response.json();
-  } catch {
-    // GitHub Pages does not run the local Node API.
+    if (!response.ok) throw new Error('Local museum API request failed.');
+    return response.json();
   }
   return getArtworkFromPublicApi();
 }
@@ -102,6 +102,16 @@ async function requestArtwork() {
     }
   }
   throw new Error('No HD landscape artwork is currently available.');
+}
+
+async function prepareNextArtwork() {
+  while (true) {
+    try {
+      return await requestArtwork();
+    } catch {
+      // Keep requesting a replacement in the background until one is ready.
+    }
+  }
 }
 
 function show({ artwork, candidate }) {
@@ -119,16 +129,12 @@ function show({ artwork, candidate }) {
 
 async function runGallery() {
   try {
-    let current = await requestArtwork();
+    let current = await prepareNextArtwork();
     while (true) {
       show(current);
-      const next = requestArtwork();
+      const next = prepareNextArtwork();
       await new Promise((resolve) => setTimeout(resolve, GALLERY_SETTINGS.displayDuration));
-      try {
-        current = await next;
-      } catch {
-        current = await requestArtwork();
-      }
+      current = await next;
     }
   } catch (error) {
     status.textContent = error.message;
